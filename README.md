@@ -2,36 +2,31 @@
 
 Surveillance pédagogique de trois salles par capteurs virtuels de température et d'humidité.
 
-## Phase 2 — installation InfluxDB 2
+## Phase 3 — Simulation des capteurs (InfluxDB 2)
 
-**Prérequis** : Docker Desktop, Docker Compose.
+### Préparer
 
-1. Copier `.env.example` vers `.env` **à la racine** et remplacer `INFLUX_PASSWORD` et `INFLUX_TOKEN` par des valeurs longues et uniques.
-2. Depuis le répertoire du projet :
-   ```powershell
-   docker compose config
-   docker compose up -d
-   docker compose ps
-   ```
-3. Ouvrir `http://localhost:8086` et se connecter avec l'utilisateur et le mot de passe de `.env`.
-4. Dans Load Data > Buckets, vérifier `building_monitoring` ; vérifier l'organisation `eseo` dans les réglages.
-5. Vérifier la version (commande alternative) :
-   ```powershell
-   docker exec building-monitoring-influxdb2 influxd version
-   ```
+InfluxDB 2 doit être démarré avec `docker compose up -d` et le bucket `building_monitoring` doit exister.
+Conservez le fichier `.env` **à la racine** avec `INFLUX_TOKEN`, `INFLUX_ORG`, `INFLUX_BUCKET`. Ne publiez jamais ce fichier.
 
-### Précautions
+Dans PowerShell à la racine du projet :
 
-- La première initialisation (organisation/bucket/token) n'est faite **qu'avec des volumes vides**. Modifier `.env` après le premier démarrage ne recrée pas les identifiants.
-- Ne pas exécuter `docker compose down -v` sur une instance contenant des données à conserver : cela détruit ses volumes.
-- Les ports sont liés à `127.0.0.1`, pour une démo locale seulement. Les secrets du `.env` peuvent être visibles aux personnes autorisées à inspecter Docker : ne pas utiliser des identifiants réels.
-- Si une instance InfluxDB 3 existe, les volumes sont séparés ; arrêter ses anciens conteneurs en cas de conflit de nom ou de ports.
-- Le `.env` ne doit jamais être commité. Vérifier avec `git status`.
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r python/requirements.txt
+.\.venv\Scripts\python.exe python/main.py
+.\.venv\Scripts\python.exe python/simulation.py
+```
 
-## Modèle de données
+Stopper le simulateur avec Ctrl+C. Après 6 cycles (~50 secondes), le capteur CAP-02 enregistre une anomalie >30°C pendant 4 cycles.
 
-Lire [`MODELE_DONNEES.md`](MODELE_DONNEES.md).
+Dans InfluxDB Data Explorer, sélectionner le bucket `building_monitoring` et afficher les températures sur les 15 dernières minutes, ou exécuter :
 
-## Scripts Python — pas encore migrés
+```flux
+from(bucket: "building_monitoring")
+  |> range(start: -15m)
+  |> filter(fn: (r) => r._measurement == "room_climate")
+  |> filter(fn: (r) => r._field == "temperature")
+```
 
-`python/main.py`, `python/simulation.py`, `python/requirements.txt` et `python/.env.example` sont des **archives du code InfluxDB 3** . **Ne pas les exécuter contre InfluxDB 2** : leur SDK, port et SQL ne sont pas compatibles. Ils seront adaptés durant une phase ultérieure.
+Le `main.py` permet un test ponctuel d'écriture et de lecture. `simulation.py` écrit trois points toutes les dix secondes.

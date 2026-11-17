@@ -1,56 +1,35 @@
+"""Test ponctuel de lecture/écriture avec le SDK Python InfluxDB 2."""
 import os
 from pathlib import Path
 
-import pandas as pd
 from dotenv import load_dotenv
-from influxdb_client_3 import InfluxDBClient3
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
 
-# 1. Charger le fichier .env
-DOSSIER = Path(__file__).resolve().parent
-load_dotenv(DOSSIER / ".env")
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+URL = os.getenv("INFLUX_URL", "http://localhost:8086")
+TOKEN = os.getenv("INFLUX_TOKEN")
+ORG = os.getenv("INFLUX_ORG")
+BUCKET = os.getenv("INFLUX_BUCKET")
+if not all([TOKEN, ORG, BUCKET]):
+    raise RuntimeError("Configuration absente : vérifier le fichier .env à la racine")
 
-# 2. Récupérer le token
-TOKEN = os.getenv("INFLUXDB3_AUTH_TOKEN")
-
-HOST = "http://localhost:8181"
-DATABASE = "batiment"
-
-if not TOKEN:
-    raise ValueError("Token absent : vérifiez le fichier .env")
-
-# 3. Créer le client InfluxDB
-client = InfluxDBClient3(
-    host=HOST,
-    token=TOKEN,
-    database=DATABASE
-)
-
-try:
-    print("Connexion à InfluxDB réussie !")
-
-    # 4. WRITE : envoyer une nouvelle mesure
-    mesure = (
-        "room_climate,room=salle_101,sensor_id=CAP-01 "
-        "temperature=23.0,humidity=48.0"
-    )
-
-    client.write(record=mesure)
-
-    print("Nouvelle mesure enregistrée avec succès !")
-
-    # 5. READ : lire les 5 dernières mesures
-    resultat = client.query(
-        query="SELECT * FROM room_climate ORDER BY time DESC LIMIT 5"
-    )
-
-    print("\nDernières mesures enregistrées :")
-
-    df = resultat.to_pandas()
-    print(df.to_string(index=False))
-
-except Exception as erreur:
-    print("Erreur :", erreur)
-
-finally:
-    client.close()
-    print("\nConnexion fermée.")
+with InfluxDBClient(url=URL, token=TOKEN, org=ORG) as client:
+    with client.write_api(write_options=SYNCHRONOUS) as writer:
+        point = (Point("room_climate")
+                 .tag("room", "salle_101")
+                 .tag("sensor_id", "CAP-01")
+                 .field("temperature", 23.0)
+                 .field("humidity", 48.0))
+        writer.write(bucket=BUCKET, org=ORG, record=point)
+    print("Écriture réussie.")
+    query = f'''from(bucket: "{BUCKET}")
+      |> range(start: -1h)
+      |> filter(fn: (r) => r._measurement == "room_climate")
+      |> filter(fn: (r) => r._field == "temperature")
+      |> sort(columns: ["_time"], desc: true)
+      |> limit(n: 5)'''
+    tables = client.query_api().query(org=ORG, query=query)
+    for table in tables:
+        for record in table.records:
+            print(record.get_time(), record.values.get("room"), record.get_value())
