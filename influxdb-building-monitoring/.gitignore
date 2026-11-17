@@ -1,0 +1,18 @@
+# Configuration et secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Donnees et etat local InfluxDB
+data/
+plugins/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
