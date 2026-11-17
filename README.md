@@ -2,31 +2,37 @@
 
 Surveillance pédagogique de trois salles par capteurs virtuels de température et d'humidité.
 
-## Phase 3 — Simulation des capteurs (InfluxDB 2)
+## Phase 5 — Analyses temporelles avec Python et InfluxDB 2
 
-### Préparer
+### Objectif
+Interroger les mesures `room_climate` déjà écrites par `simulation.py`, sans toucher aux scripts existants. Calculer la température moyenne, la température maximale et repérer les dépassements de 30 °C.
 
-InfluxDB 2 doit être démarré avec `docker compose up -d` et le bucket `building_monitoring` doit exister.
-Conservez le fichier `.env` **à la racine** avec `INFLUX_TOKEN`, `INFLUX_ORG`, `INFLUX_BUCKET`. Ne publiez jamais ce fichier.
+### Prérequis
+- InfluxDB 2 démarré (`docker compose ps`).
+- `.env` à la racine avec les valeurs `INFLUX_TOKEN`, `INFLUX_ORG`, `INFLUX_BUCKET`.
+- Dépendances de `python/requirements.txt` déjà installées.
+- Des mesures `room_climate` de moins de 7 jours dans le bucket.
 
-Dans PowerShell à la racine du projet :
+### Exécuter
+À la racine du dépôt, dans PowerShell :
 
 ```powershell
-py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r python/requirements.txt
-.\.venv\Scripts\python.exe python/main.py
-.\.venv\Scripts\python.exe python/simulation.py
+.\.venv\Scripts\python.exe python/analyse.py
 ```
 
-Stopper le simulateur avec Ctrl+C. Après 6 cycles (~50 secondes), le capteur CAP-02 enregistre une anomalie >30°C pendant 4 cycles.
+Si aucune donnée n'apparaît, exécuter `python/simulation.py` pendant 10 cycles, l'arrêter avec `Ctrl+C`, puis relancer `analyse.py`.
 
-Dans InfluxDB Data Explorer, sélectionner le bucket `building_monitoring` et afficher les températures sur les 15 dernières minutes, ou exécuter :
+### Modèle et requêtes
+- Measurement : `room_climate`
+- Tags : `room`, `sensor_id`
+- Field : `temperature`
+- Temps : 7 derniers jours
+- Agrégations Flux : `group()` + `mean()` et `max()`
+- Détection des anomalies : `filter(_value > 30.0)`
 
-```flux
-from(bucket: "building_monitoring")
-  |> range(start: -15m)
-  |> filter(fn: (r) => r._measurement == "room_climate")
-  |> filter(fn: (r) => r._field == "temperature")
-```
+**Attention** : une mesure isolée créée par `main.py` peut entrer dans les moyennes. Les données historiques et les simulations successives peuvent aussi modifier les résultats. Les valeurs sont donc à vérifier sur les données effectivement stockées.
 
-Le `main.py` permet un test ponctuel d'écriture et de lecture. `simulation.py` écrit trois points toutes les dix secondes.
+## Critères de validation
+1. Le script affiche trois salles pour les moyennes et les maximums (si les trois capteurs ont écrit récemment).
+2. Les événements de température >30 °C apparaissent quand le simulateur a exécuté les cycles 6 à 9.
+3. Les mêmes requêtes peuvent être copiées dans le Script Editor de Data Explorer (en remplaçant `BUCKET` par le nom réel).
